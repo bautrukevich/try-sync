@@ -6,7 +6,6 @@ import { findTaskById, updateTaskStatus, NotionEnv } from "../lib/notion";
 
 type Bindings = NotionEnv & {
   GITHUB_WEBHOOK_SECRET: string;
-  LOG_LEVEL?: string;
 };
 
 const github = new Hono<{ Bindings: Bindings }>();
@@ -22,7 +21,7 @@ github.post("/webhooks/github", async (c) => {
   // ------------------------------------------------------------------
   const signature = c.req.header("X-Hub-Signature-256");
   if (!signature) {
-    console.warn("event=webhook result=unauthorized");
+    console.warn("event=webhook result=unauthorized reason=missing_signature");
     return c.text("Unauthorized", 401);
   }
 
@@ -35,7 +34,7 @@ github.post("/webhooks/github", async (c) => {
   }
 
   if (!valid) {
-    console.warn("event=webhook result=unauthorized");
+    console.warn("event=webhook result=unauthorized reason=invalid_signature");
     return c.text("Unauthorized", 401);
   }
 
@@ -43,7 +42,10 @@ github.post("/webhooks/github", async (c) => {
   // 3. Only handle pull_request events
   // ------------------------------------------------------------------
   const eventType = c.req.header("X-GitHub-Event");
+  console.log(`event=webhook_received type=${eventType ?? "unknown"} body_bytes=${rawBody.length}`);
+
   if (eventType !== "pull_request") {
+    console.log(`event=webhook_ignored type=${eventType ?? "unknown"}`);
     return c.text("OK");
   }
 
@@ -57,12 +59,17 @@ github.post("/webhooks/github", async (c) => {
 
   const { action, pull_request: pr, changes } = payload;
 
+  console.log(
+    `event=pull_request action=${action} pr=${pr.number} repo="${payload.repository.full_name}" user="${pr.user.login}" title="${pr.title}" branch="${pr.head.ref}" merged=${pr.merged}`
+  );
+
   // ------------------------------------------------------------------
   // 4. For `edited` events, only react when the title changed.
   //    GitHub fires `edited` for body/base-branch changes too; those
   //    don't affect the task-ID we derive from the title.
   // ------------------------------------------------------------------
   if (action === "edited" && !changes?.title) {
+    console.log(`event=pull_request.edited result=ignored reason=no_title_change changed_fields=${Object.keys(changes ?? {}).join(",") || "none"}`);
     return c.text("OK");
   }
 
@@ -71,6 +78,7 @@ github.post("/webhooks/github", async (c) => {
   // ------------------------------------------------------------------
   const status = mapEventToStatus(action, pr.merged);
   if (!status) {
+    console.log(`event=pull_request.${action} result=ignored reason=unhandled_action`);
     return c.text("OK");
   }
 
@@ -84,6 +92,8 @@ github.post("/webhooks/github", async (c) => {
     );
     return c.text("OK");
   }
+
+  console.log(`event=pull_request.${action} task=${taskId} target_status="${status}"`);
 
   // ------------------------------------------------------------------
   // 7. Find the task in Notion
@@ -118,7 +128,7 @@ github.post("/webhooks/github", async (c) => {
   }
 
   console.log(
-    `event=pull_request.${action} task=${taskId} status="${status}" result=updated`
+    `event=pull_request.${action} task=${taskId} page_id=${page.id} status="${status}" result=updated`
   );
 
   return c.text("OK");
