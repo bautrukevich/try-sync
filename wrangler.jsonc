@@ -25,7 +25,10 @@
   // For local dev, place values in .dev.vars (gitignored)
   //
   //   NOTION_API_KEY        – Notion integration token (secret_ prefix)
-  //   NOTION_DATABASE_ID    – ID of the Notion database to sync tasks into
+  //   NOTION_DATABASE_ID    – ID of the Notion database (visible in the DB URL)
+  //   NOTION_DATA_SOURCE_ID – Data source ID within the database; retrieve once
+  //                           via: notion.databases.retrieve({ database_id })
+  //                           → response.data_sources[0].id
   //   GITHUB_WEBHOOK_SECRET – The secret configured in GitHub → Settings →
   //                           Webhooks, used to verify X-Hub-Signature-256
   //   LOG_LEVEL             – Optional. Unused at runtime; reserved for future

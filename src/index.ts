@@ -6,6 +6,7 @@ import githubRouter from "./routes/github";
 export type Bindings = {
   NOTION_API_KEY: string;
   NOTION_DATABASE_ID: string;
+  NOTION_DATA_SOURCE_ID: string;
   GITHUB_WEBHOOK_SECRET: string;
   LOG_LEVEL?: string;
 };

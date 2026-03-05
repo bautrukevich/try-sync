@@ -22,6 +22,7 @@ const TEST_ENV = {
   GITHUB_WEBHOOK_SECRET: TEST_SECRET,
   NOTION_API_KEY: "secret_test",
   NOTION_DATABASE_ID: "db-id-123",
+  NOTION_DATA_SOURCE_ID: "ds-id-456",
 };
 
 const MOCK_PAGE_ID = "page-id-abc";

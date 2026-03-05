@@ -13,6 +13,7 @@ import { parseTaskId } from "./parser";
 export interface NotionEnv {
   NOTION_API_KEY: string;
   NOTION_DATABASE_ID: string;
+  NOTION_DATA_SOURCE_ID: string;
 }
 
 function makeClient(apiKey: string): Client {
@@ -40,8 +41,8 @@ export async function findTaskById(
   const { prefix, number } = parseTaskId(taskId);
   const notion = makeClient(env.NOTION_API_KEY);
 
-  const response = await notion.databases.query({
-    database_id: env.NOTION_DATABASE_ID,
+  const response = await notion.dataSources.query({
+    data_source_id: env.NOTION_DATA_SOURCE_ID,
     filter: {
       property: "ID",
       unique_id: {
