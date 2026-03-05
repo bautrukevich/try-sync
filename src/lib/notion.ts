@@ -1,44 +1,22 @@
 /**
- * Notion API client.
+ * Notion API client built on top of the official @notionhq/client SDK.
  *
  * Two operations:
- *  1. findTaskById  – query the database for a page whose Unique ID matches
- *  2. updateTaskStatus – PATCH the page's Status property
+ *  1. findTaskById    – query the database for a page whose Unique ID matches
+ *  2. updateTaskStatus – update the page's Status property
  */
 
+import { Client, isFullPage } from "@notionhq/client";
+import type { PageObjectResponse } from "@notionhq/client/build/src/api-endpoints";
 import { parseTaskId } from "./parser";
-
-const NOTION_API_BASE = "https://api.notion.com/v1";
-const NOTION_VERSION = "2025-09-03";
 
 export interface NotionEnv {
   NOTION_API_KEY: string;
   NOTION_DATABASE_ID: string;
 }
 
-interface NotionUniqueId {
-  number: number;
-  prefix: string | null;
-}
-
-export interface NotionPage {
-  id: string;
-  properties: {
-    ID: {
-      type: "unique_id";
-      unique_id: NotionUniqueId;
-    };
-    Status: {
-      type: "status" | "select";
-      // We only write to this; reading shape varies by type
-      [key: string]: unknown;
-    };
-    [key: string]: unknown;
-  };
-}
-
-interface NotionQueryResponse {
-  results: NotionPage[];
+function makeClient(apiKey: string): Client {
+  return new Client({ auth: apiKey });
 }
 
 // ---------------------------------------------------------------------------
@@ -46,55 +24,44 @@ interface NotionQueryResponse {
 // ---------------------------------------------------------------------------
 
 /**
- * Searches the Notion database for the page whose Unique ID matches taskId
+ * Searches the Notion database for a page whose Unique ID matches taskId
  * (e.g. "LEVEL-123").
  *
- * The Notion API only lets us filter unique_id by number, so we query by the
- * numeric part and then verify the prefix to avoid false positives when
- * multiple prefixes are used in the same database.
+ * The SDK's unique_id filter only accepts the numeric part, so we query by
+ * number and then verify the prefix to avoid false positives when multiple
+ * prefixes exist in the same database.
  *
  * Returns the matching page or null.
  */
 export async function findTaskById(
   env: NotionEnv,
   taskId: string
-): Promise<NotionPage | null> {
+): Promise<PageObjectResponse | null> {
   const { prefix, number } = parseTaskId(taskId);
+  const notion = makeClient(env.NOTION_API_KEY);
 
-  const body = {
+  const response = await notion.databases.query({
+    database_id: env.NOTION_DATABASE_ID,
     filter: {
       property: "ID",
       unique_id: {
         equals: number,
       },
     },
-  };
+  });
 
-  const res = await fetch(
-    `${NOTION_API_BASE}/databases/${env.NOTION_DATABASE_ID}/query`,
-    {
-      method: "POST",
-      headers: notionHeaders(env.NOTION_API_KEY),
-      body: JSON.stringify(body),
-    }
-  );
+  const matches = response.results.filter((page) => {
+    if (!isFullPage(page)) return false;
 
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Notion query failed (${res.status}): ${text}`);
-  }
+    const idProp = page.properties["ID"];
+    if (!idProp || idProp.type !== "unique_id") return false;
 
-  const data = (await res.json()) as NotionQueryResponse;
-
-  // Verify prefix to avoid false positives
-  const matches = data.results.filter((page) => {
-    const uid = page.properties?.ID?.unique_id;
+    const uid = idProp.unique_id;
     return (
-      uid &&
       uid.number === number &&
       (uid.prefix ?? "").toUpperCase() === prefix.toUpperCase()
     );
-  });
+  }) as PageObjectResponse[];
 
   if (matches.length === 0) return null;
 
@@ -113,14 +80,16 @@ export async function findTaskById(
 
 /**
  * Updates the Status property of a Notion page.
- * Works for both the native "status" property type and a "select" property.
  */
 export async function updateTaskStatus(
   env: NotionEnv,
   pageId: string,
   status: string
 ): Promise<void> {
-  const body = {
+  const notion = makeClient(env.NOTION_API_KEY);
+
+  await notion.pages.update({
+    page_id: pageId,
     properties: {
       Status: {
         status: {
@@ -128,28 +97,5 @@ export async function updateTaskStatus(
         },
       },
     },
-  };
-
-  const res = await fetch(`${NOTION_API_BASE}/pages/${pageId}`, {
-    method: "PATCH",
-    headers: notionHeaders(env.NOTION_API_KEY),
-    body: JSON.stringify(body),
   });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Notion update failed (${res.status}): ${text}`);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function notionHeaders(apiKey: string): Record<string, string> {
-  return {
-    Authorization: `Bearer ${apiKey}`,
-    "Content-Type": "application/json",
-    "Notion-Version": NOTION_VERSION,
-  };
 }

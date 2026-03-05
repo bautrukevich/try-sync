@@ -70,6 +70,10 @@ describe("mapEventToStatus", () => {
     expect(mapEventToStatus("opened", false)).toBe("In Progress");
   });
 
+  it("maps edited → In Progress", () => {
+    expect(mapEventToStatus("edited", false)).toBe("In Progress");
+  });
+
   it("maps review_requested → In Review", () => {
     expect(mapEventToStatus("review_requested", false)).toBe("In Review");
   });

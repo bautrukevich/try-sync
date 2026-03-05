@@ -3,6 +3,7 @@
   "name": "try-sync",
   "main": "src/index.ts",
   "compatibility_date": "2026-02-18",
+  "compatibility_flags": ["nodejs_compat"],
   "observability": {
     "enabled": false,
     "head_sampling_rate": 1,

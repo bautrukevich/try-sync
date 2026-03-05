@@ -1,13 +1,15 @@
-import {
-  describe,
-  it,
-  expect,
-  vi,
-  beforeEach,
-  afterEach,
-  MockInstance,
-} from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import app from "../index";
+import { findTaskById, updateTaskStatus } from "../lib/notion";
+import type { PageObjectResponse } from "@notionhq/client/build/src/api-endpoints";
+
+// ---------------------------------------------------------------------------
+// Mock the entire notion module – keeps the SDK out of the Workers runtime
+// ---------------------------------------------------------------------------
+vi.mock("../lib/notion", () => ({
+  findTaskById: vi.fn(),
+  updateTaskStatus: vi.fn(),
+}));
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -20,6 +22,16 @@ const TEST_ENV = {
   NOTION_API_KEY: "secret_test",
   NOTION_DATABASE_ID: "db-id-123",
 };
+
+const MOCK_PAGE_ID = "page-id-abc";
+const MOCK_PAGE = {
+  id: MOCK_PAGE_ID,
+  object: "page",
+  properties: {
+    ID: { type: "unique_id", unique_id: { number: 42, prefix: "LEVEL" } },
+    Status: { type: "status" },
+  },
+} as unknown as PageObjectResponse;
 
 async function sign(secret: string, body: string): Promise<string> {
   const encoder = new TextEncoder();
@@ -42,8 +54,9 @@ function makePRPayload(overrides: {
   title?: string;
   branch?: string;
   merged?: boolean;
+  changes?: Record<string, unknown>;
 }): string {
-  return JSON.stringify({
+  const payload: Record<string, unknown> = {
     action: overrides.action,
     pull_request: {
       number: 1,
@@ -53,15 +66,14 @@ function makePRPayload(overrides: {
       user: { login: "dev" },
     },
     repository: { full_name: "org/repo" },
-  });
+  };
+  if (overrides.changes !== undefined) payload.changes = overrides.changes;
+  return JSON.stringify(payload);
 }
 
 async function sendWebhook(
   body: string,
-  opts: {
-    signature?: string | null;
-    event?: string;
-  } = {}
+  opts: { signature?: string | null; event?: string } = {}
 ): Promise<Response> {
   const sig =
     opts.signature !== undefined
@@ -74,54 +86,7 @@ async function sendWebhook(
   };
   if (sig !== null) headers["X-Hub-Signature-256"] = sig;
 
-  return app.request(
-    "/webhooks/github",
-    { method: "POST", headers, body },
-    TEST_ENV
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Mock global fetch (Notion API calls)
-// ---------------------------------------------------------------------------
-
-const MOCK_PAGE_ID = "page-id-abc";
-
-function mockNotionSuccess(): MockInstance {
-  return vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-    const url = typeof input === "string" ? input : (input as Request).url;
-
-    // Query endpoint → return one matching page
-    if (url.includes("/query")) {
-      return new Response(
-        JSON.stringify({
-          results: [
-            {
-              id: MOCK_PAGE_ID,
-              properties: {
-                ID: {
-                  type: "unique_id",
-                  unique_id: { number: 42, prefix: "LEVEL" },
-                },
-                Status: { type: "status" },
-              },
-            },
-          ],
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } }
-      );
-    }
-
-    // Update endpoint → 200 OK
-    if (url.includes(`/pages/${MOCK_PAGE_ID}`)) {
-      return new Response(JSON.stringify({ id: MOCK_PAGE_ID }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
-
-    return new Response("Not found", { status: 404 });
-  });
+  return app.request("/webhooks/github", { method: "POST", headers, body }, TEST_ENV);
 }
 
 // ---------------------------------------------------------------------------
@@ -129,14 +94,13 @@ function mockNotionSuccess(): MockInstance {
 // ---------------------------------------------------------------------------
 
 describe("POST /webhooks/github", () => {
-  let fetchSpy: MockInstance;
-
   beforeEach(() => {
-    fetchSpy = mockNotionSuccess();
+    vi.mocked(findTaskById).mockResolvedValue(MOCK_PAGE);
+    vi.mocked(updateTaskStatus).mockResolvedValue(undefined);
   });
 
   afterEach(() => {
-    vi.restoreAllMocks();
+    vi.clearAllMocks();
   });
 
   // ── Auth ──────────────────────────────────────────────────────────────────
@@ -149,9 +113,7 @@ describe("POST /webhooks/github", () => {
 
   it("returns 401 when signature is wrong", async () => {
     const body = makePRPayload({ action: "opened" });
-    const res = await sendWebhook(body, {
-      signature: "sha256=badbadbadbad",
-    });
+    const res = await sendWebhook(body, { signature: "sha256=badbadbadbad" });
     expect(res.status).toBe(401);
   });
 
@@ -167,21 +129,21 @@ describe("POST /webhooks/github", () => {
     const body = JSON.stringify({ action: "created" });
     const res = await sendWebhook(body, { event: "push" });
     expect(res.status).toBe(200);
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(findTaskById).not.toHaveBeenCalled();
   });
 
   it("ignores unhandled PR actions (e.g. labeled)", async () => {
     const body = makePRPayload({ action: "labeled" });
     const res = await sendWebhook(body);
     expect(res.status).toBe(200);
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(findTaskById).not.toHaveBeenCalled();
   });
 
   it("ignores closed PR that was not merged", async () => {
     const body = makePRPayload({ action: "closed", merged: false });
     const res = await sendWebhook(body);
     expect(res.status).toBe(200);
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(findTaskById).not.toHaveBeenCalled();
   });
 
   // ── Task ID extraction ────────────────────────────────────────────────────
@@ -194,53 +156,75 @@ describe("POST /webhooks/github", () => {
     });
     const res = await sendWebhook(body);
     expect(res.status).toBe(200);
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(findTaskById).not.toHaveBeenCalled();
   });
 
   // ── Status sync ───────────────────────────────────────────────────────────
 
-  it("PR opened → queries Notion and sets In Progress", async () => {
+  it("PR opened → finds task and sets In Progress", async () => {
     const body = makePRPayload({ action: "opened", title: "LEVEL-42 work" });
     const res = await sendWebhook(body);
     expect(res.status).toBe(200);
 
-    // Notion query called
-    const queryCalls = (fetchSpy.mock.calls as [string, RequestInit][]).filter(
-      ([url]) => url.includes("/query")
+    expect(findTaskById).toHaveBeenCalledWith(
+      expect.objectContaining({ NOTION_DATABASE_ID: TEST_ENV.NOTION_DATABASE_ID }),
+      "LEVEL-42"
     );
-    expect(queryCalls).toHaveLength(1);
-
-    // Notion update called with correct status
-    const updateCalls = (fetchSpy.mock.calls as [string, RequestInit][]).filter(
-      ([url]) => url.includes(`/pages/${MOCK_PAGE_ID}`)
+    expect(updateTaskStatus).toHaveBeenCalledWith(
+      expect.anything(),
+      MOCK_PAGE_ID,
+      "In Progress"
     );
-    expect(updateCalls).toHaveLength(1);
-    const updateBody = JSON.parse(updateCalls[0][1].body as string);
-    expect(updateBody.properties.Status.status.name).toBe("In Progress");
   });
 
   it("PR review_requested → sets In Review", async () => {
     const body = makePRPayload({ action: "review_requested" });
     const res = await sendWebhook(body);
     expect(res.status).toBe(200);
-
-    const updateCalls = (fetchSpy.mock.calls as [string, RequestInit][]).filter(
-      ([url]) => url.includes(`/pages/${MOCK_PAGE_ID}`)
+    expect(updateTaskStatus).toHaveBeenCalledWith(
+      expect.anything(),
+      MOCK_PAGE_ID,
+      "In Review"
     );
-    const updateBody = JSON.parse(updateCalls[0][1].body as string);
-    expect(updateBody.properties.Status.status.name).toBe("In Review");
   });
 
   it("PR closed+merged → sets Done", async () => {
     const body = makePRPayload({ action: "closed", merged: true });
     const res = await sendWebhook(body);
     expect(res.status).toBe(200);
-
-    const updateCalls = (fetchSpy.mock.calls as [string, RequestInit][]).filter(
-      ([url]) => url.includes(`/pages/${MOCK_PAGE_ID}`)
+    expect(updateTaskStatus).toHaveBeenCalledWith(
+      expect.anything(),
+      MOCK_PAGE_ID,
+      "Done"
     );
-    const updateBody = JSON.parse(updateCalls[0][1].body as string);
-    expect(updateBody.properties.Status.status.name).toBe("Done");
+  });
+
+  it("PR edited with title change → re-extracts task ID and sets In Progress", async () => {
+    const body = makePRPayload({
+      action: "edited",
+      title: "LEVEL-42 updated title",
+      changes: { title: { from: "old title" } },
+    });
+    const res = await sendWebhook(body);
+    expect(res.status).toBe(200);
+    expect(findTaskById).toHaveBeenCalledWith(expect.anything(), "LEVEL-42");
+    expect(updateTaskStatus).toHaveBeenCalledWith(
+      expect.anything(),
+      MOCK_PAGE_ID,
+      "In Progress"
+    );
+  });
+
+  it("PR edited without title change → ignored (no Notion calls)", async () => {
+    // `changes` has no `title` key — body was edited, not the title
+    const body = makePRPayload({
+      action: "edited",
+      changes: { body: { from: "old description" } },
+    });
+    const res = await sendWebhook(body);
+    expect(res.status).toBe(200);
+    expect(findTaskById).not.toHaveBeenCalled();
+    expect(updateTaskStatus).not.toHaveBeenCalled();
   });
 
   it("falls back to branch name when title has no task ID", async () => {
@@ -251,34 +235,23 @@ describe("POST /webhooks/github", () => {
     });
     const res = await sendWebhook(body);
     expect(res.status).toBe(200);
-
-    const updateCalls = (fetchSpy.mock.calls as [string, RequestInit][]).filter(
-      ([url]) => url.includes(`/pages/${MOCK_PAGE_ID}`)
-    );
-    expect(updateCalls).toHaveLength(1);
+    expect(findTaskById).toHaveBeenCalledWith(expect.anything(), "LEVEL-42");
+    expect(updateTaskStatus).toHaveBeenCalledTimes(1);
   });
 
   // ── Notion error handling ─────────────────────────────────────────────────
 
   it("returns 200 when task is not found in Notion (log + ignore)", async () => {
-    vi.restoreAllMocks();
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify({ results: [] }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      })
-    );
+    vi.mocked(findTaskById).mockResolvedValue(null);
 
     const body = makePRPayload({ action: "opened" });
     const res = await sendWebhook(body);
     expect(res.status).toBe(200);
+    expect(updateTaskStatus).not.toHaveBeenCalled();
   });
 
   it("returns 500 when Notion query throws", async () => {
-    vi.restoreAllMocks();
-    vi.spyOn(globalThis, "fetch").mockRejectedValue(
-      new Error("network error")
-    );
+    vi.mocked(findTaskById).mockRejectedValue(new Error("network error"));
 
     const body = makePRPayload({ action: "opened" });
     const res = await sendWebhook(body);
@@ -286,31 +259,9 @@ describe("POST /webhooks/github", () => {
   });
 
   it("returns 500 when Notion update throws", async () => {
-    vi.restoreAllMocks();
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-      const url = typeof input === "string" ? input : (input as Request).url;
-      if (url.includes("/query")) {
-        return new Response(
-          JSON.stringify({
-            results: [
-              {
-                id: MOCK_PAGE_ID,
-                properties: {
-                  ID: {
-                    type: "unique_id",
-                    unique_id: { number: 42, prefix: "LEVEL" },
-                  },
-                  Status: { type: "status" },
-                },
-              },
-            ],
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        );
-      }
-      // Update fails
-      return new Response("Internal error", { status: 500 });
-    });
+    vi.mocked(updateTaskStatus).mockRejectedValue(
+      new Error("Notion update failed (500): Internal error")
+    );
 
     const body = makePRPayload({ action: "opened" });
     const res = await sendWebhook(body);

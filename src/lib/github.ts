@@ -82,6 +82,11 @@ export interface PullRequestEvent {
   action: string;
   pull_request: GitHubPullRequest;
   repository: GitHubRepository;
+  /** Present on `edited` events; each key is the field that changed. */
+  changes?: {
+    title?: { from: string };
+    body?: { from: string };
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -99,6 +104,7 @@ export function mapEventToStatus(
   merged: boolean
 ): NotionStatus | null {
   if (action === "opened") return "In Progress";
+  if (action === "edited") return "In Progress";
   if (action === "review_requested") return "In Review";
   if (action === "closed" && merged) return "Done";
   return null;

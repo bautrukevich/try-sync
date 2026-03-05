@@ -47,10 +47,19 @@ github.post("/webhooks/github", async (c) => {
     return c.text("Bad Request", 400);
   }
 
-  const { action, pull_request: pr } = payload;
+  const { action, pull_request: pr, changes } = payload;
 
   // ------------------------------------------------------------------
-  // 4. Map action → Notion status (ignore unhandled actions)
+  // 4. For `edited` events, only react when the title changed.
+  //    GitHub fires `edited` for body/base-branch changes too; those
+  //    don't affect the task-ID we derive from the title.
+  // ------------------------------------------------------------------
+  if (action === "edited" && !changes?.title) {
+    return c.text("OK");
+  }
+
+  // ------------------------------------------------------------------
+  // 5. Map action → Notion status (ignore unhandled actions)
   // ------------------------------------------------------------------
   const status = mapEventToStatus(action, pr.merged);
   if (!status) {
@@ -58,7 +67,7 @@ github.post("/webhooks/github", async (c) => {
   }
 
   // ------------------------------------------------------------------
-  // 5. Extract task ID from PR title, fall back to branch name
+  // 6. Extract task ID from PR title, fall back to branch name
   // ------------------------------------------------------------------
   const taskId = extractTaskId(pr.title, pr.head.ref);
   if (!taskId) {
@@ -69,7 +78,7 @@ github.post("/webhooks/github", async (c) => {
   }
 
   // ------------------------------------------------------------------
-  // 6. Find the task in Notion
+  // 7. Find the task in Notion
   // ------------------------------------------------------------------
   let page: Awaited<ReturnType<typeof findTaskById>>;
   try {
@@ -89,7 +98,7 @@ github.post("/webhooks/github", async (c) => {
   }
 
   // ------------------------------------------------------------------
-  // 7. Update the task status in Notion
+  // 8. Update the task status in Notion
   // ------------------------------------------------------------------
   try {
     await updateTaskStatus(c.env, page.id, status);

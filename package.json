@@ -9,6 +9,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@notionhq/client": "^5.11.1",
     "hono": "^4.11.9"
   },
   "devDependencies": {
