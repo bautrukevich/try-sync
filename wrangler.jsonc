@@ -2,35 +2,20 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "try-sync",
   "main": "src/index.ts",
-  "compatibility_date": "2026-02-18"
-  // "compatibility_flags": [
-  //   "nodejs_compat"
-  // ],
-  // "vars": {
-  //   "MY_VAR": "my-variable"
-  // },
-  // "kv_namespaces": [
-  //   {
-  //     "binding": "MY_KV_NAMESPACE",
-  //     "id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-  //   }
-  // ],
-  // "r2_buckets": [
-  //   {
-  //     "binding": "MY_BUCKET",
-  //     "bucket_name": "my-bucket"
-  //   }
-  // ],
-  // "d1_databases": [
-  //   {
-  //     "binding": "MY_DB",
-  //     "database_name": "my-database",
-  //     "database_id": ""
-  //   }
-  // ],
-  // "ai": {
-  //   "binding": "AI"
-  // },
+  "compatibility_date": "2026-02-18",
+
+  // ---------------------------------------------------------------------------
+  // Secrets – set via `wrangler secret put <NAME>` (never commit values)
+  // For local dev, place values in .dev.vars (gitignored)
+  //
+  //   NOTION_API_KEY        – Notion integration token (secret_ prefix)
+  //   NOTION_DATABASE_ID    – ID of the Notion database to sync tasks into
+  //   GITHUB_WEBHOOK_SECRET – The secret configured in GitHub → Settings →
+  //                           Webhooks, used to verify X-Hub-Signature-256
+  //   LOG_LEVEL             – Optional. Unused at runtime; reserved for future
+  //                           structured log filtering.
+  // ---------------------------------------------------------------------------
+
   // "observability": {
   //   "enabled": true,
   //   "head_sampling_rate": 1
