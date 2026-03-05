@@ -9,7 +9,7 @@
 import { parseTaskId } from "./parser";
 
 const NOTION_API_BASE = "https://api.notion.com/v1";
-const NOTION_VERSION = "2022-06-28";
+const NOTION_VERSION = "2025-09-03";
 
 export interface NotionEnv {
   NOTION_API_KEY: string;
