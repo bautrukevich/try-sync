@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { sign } from "@octokit/webhooks-methods";
 import app from "../index";
 import { findTaskById, updateTaskStatus } from "../lib/notion";
 import type { PageObjectResponse } from "@notionhq/client/build/src/api-endpoints";
@@ -33,21 +34,25 @@ const MOCK_PAGE = {
   },
 } as unknown as PageObjectResponse;
 
-async function sign(secret: string, body: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    "raw",
-    encoder.encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-  const mac = await crypto.subtle.sign("HMAC", key, encoder.encode(body));
-  const hex = Array.from(new Uint8Array(mac))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-  return `sha256=${hex}`;
+async function sendWebhook(
+  body: string,
+  opts: { signature?: string | null; event?: string } = {}
+): Promise<Response> {
+  const sig =
+    opts.signature !== undefined
+      ? opts.signature
+      : await sign(TEST_SECRET, body);
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "X-GitHub-Event": opts.event ?? "pull_request",
+  };
+  if (sig !== null) headers["X-Hub-Signature-256"] = sig;
+
+  return app.request("/webhooks/github", { method: "POST", headers, body }, TEST_ENV);
 }
+
+// ---------------------------------------------------------------------------
 
 function makePRPayload(overrides: {
   action: string;
@@ -69,24 +74,6 @@ function makePRPayload(overrides: {
   };
   if (overrides.changes !== undefined) payload.changes = overrides.changes;
   return JSON.stringify(payload);
-}
-
-async function sendWebhook(
-  body: string,
-  opts: { signature?: string | null; event?: string } = {}
-): Promise<Response> {
-  const sig =
-    opts.signature !== undefined
-      ? opts.signature
-      : await sign(TEST_SECRET, body);
-
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    "X-GitHub-Event": opts.event ?? "pull_request",
-  };
-  if (sig !== null) headers["X-Hub-Signature-256"] = sig;
-
-  return app.request("/webhooks/github", { method: "POST", headers, body }, TEST_ENV);
 }
 
 // ---------------------------------------------------------------------------

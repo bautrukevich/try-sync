@@ -1,5 +1,6 @@
 import { Hono } from "hono";
-import { verifySignature, mapEventToStatus, PullRequestEvent } from "../lib/github";
+import { verify } from "@octokit/webhooks-methods";
+import { mapEventToStatus, PullRequestEvent } from "../lib/github";
 import { extractTaskId } from "../lib/parser";
 import { findTaskById, updateTaskStatus, NotionEnv } from "../lib/notion";
 
@@ -17,14 +18,21 @@ github.post("/webhooks/github", async (c) => {
   const rawBody = await c.req.text();
 
   // ------------------------------------------------------------------
-  // 2. Verify HMAC-SHA256 signature
+  // 2. Verify HMAC-SHA256 signature via @octokit/webhooks-methods
   // ------------------------------------------------------------------
-  const signature = c.req.header("X-Hub-Signature-256") ?? null;
-  const valid = await verifySignature(
-    c.env.GITHUB_WEBHOOK_SECRET,
-    rawBody,
-    signature
-  );
+  const signature = c.req.header("X-Hub-Signature-256");
+  if (!signature) {
+    console.warn("event=webhook result=unauthorized");
+    return c.text("Unauthorized", 401);
+  }
+
+  let valid = false;
+  try {
+    valid = await verify(c.env.GITHUB_WEBHOOK_SECRET, rawBody, signature);
+  } catch {
+    // verify() throws on malformed input (e.g. missing sha256= prefix)
+    valid = false;
+  }
 
   if (!valid) {
     console.warn("event=webhook result=unauthorized");

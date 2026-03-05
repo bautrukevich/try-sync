@@ -11,6 +11,9 @@ importers:
       '@notionhq/client':
         specifier: ^5.11.1
         version: 5.11.1
+      '@octokit/webhooks-methods':
+        specifier: ^6.0.0
+        version: 6.0.0
       hono:
         specifier: ^4.11.9
         version: 4.11.9
@@ -451,6 +454,10 @@ packages:
   '@notionhq/client@5.11.1':
     resolution: {integrity: sha512-393XUAb4706eWKQx1xxg/tdn/rTY6+qj3PxTGyTr03D7ydO6e7B7tYyidxJCbKzNSSCVTUAth/bLoKNhm0VoUQ==}
     engines: {node: '>=18'}
+
+  '@octokit/webhooks-methods@6.0.0':
+    resolution: {integrity: sha512-MFlzzoDJVw/GcbfzVC1RLR36QqkTLUf79vLVO3D+xn7r0QgxnFoLZgtrzxiQErAjFUOdH6fas2KeQJ1yr/qaXQ==}
+    engines: {node: '>= 20'}
 
   '@poppinss/colors@4.1.6':
     resolution: {integrity: sha512-H9xkIdFswbS8n1d6vmRd8+c10t2Qe+rZITbbDHHkQixH5+2x1FDGmi/0K+WgWiqQFKPSlIYB7jlH6Kpfn6Fleg==}
@@ -1238,6 +1245,8 @@ snapshots:
       '@jridgewell/sourcemap-codec': 1.5.5
 
   '@notionhq/client@5.11.1': {}
+
+  '@octokit/webhooks-methods@6.0.0': {}
 
   '@poppinss/colors@4.1.6':
     dependencies:
