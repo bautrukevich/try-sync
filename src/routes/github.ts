@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { verify } from "@octokit/webhooks-methods";
 import { mapEventToStatus, PullRequestEvent } from "../lib/github";
 import { extractTaskId } from "../lib/parser";
-import { findTaskById, updateTaskStatus, NotionEnv } from "../lib/notion";
+import { findTaskById, updateTaskStatus, updatePullRequestUrl, NotionEnv } from "../lib/notion";
 
 type Bindings = NotionEnv & {
   GITHUB_WEBHOOK_SECRET: string;
@@ -116,10 +116,13 @@ github.post("/webhooks/github", async (c) => {
   }
 
   // ------------------------------------------------------------------
-  // 8. Update the task status in Notion
+  // 8. Update the task status and PR URL in Notion
   // ------------------------------------------------------------------
   try {
-    await updateTaskStatus(c.env, page.id, status);
+    await Promise.all([
+      updateTaskStatus(c.env, page.id, status),
+      updatePullRequestUrl(c.env, page.id, pr.html_url),
+    ]);
   } catch (err) {
     console.error(
       `event=pull_request.${action} task=${taskId} status="${status}" result=notion_update_error error="${err}"`
@@ -128,7 +131,7 @@ github.post("/webhooks/github", async (c) => {
   }
 
   console.log(
-    `event=pull_request.${action} task=${taskId} page_id=${page.id} status="${status}" result=updated`
+    `event=pull_request.${action} task=${taskId} page_id=${page.id} status="${status}" pr_url="${pr.html_url}" result=updated`
   );
 
   return c.text("OK");

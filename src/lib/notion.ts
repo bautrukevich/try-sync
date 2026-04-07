@@ -143,3 +143,31 @@ export async function updateTaskStatus(
 
   console.log(`notion=update_success page_id=${pageId} status="${status}"`);
 }
+
+// ---------------------------------------------------------------------------
+// updatePullRequestUrl
+// ---------------------------------------------------------------------------
+
+/**
+ * Updates the "Pull request URL" property of a Notion page.
+ */
+export async function updatePullRequestUrl(
+  env: NotionEnv,
+  pageId: string,
+  url: string
+): Promise<void> {
+  const notion = makeClient(env.NOTION_API_KEY);
+
+  console.log(`notion=update_pr_url page_id=${pageId} url="${url}"`);
+
+  await notion.pages.update({
+    page_id: pageId,
+    properties: {
+      "Pull request URL": {
+        url,
+      },
+    },
+  });
+
+  console.log(`notion=update_pr_url_success page_id=${pageId}`);
+}

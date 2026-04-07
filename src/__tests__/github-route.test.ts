@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { sign } from "@octokit/webhooks-methods";
 import app from "../index";
-import { findTaskById, updateTaskStatus } from "../lib/notion";
+import { findTaskById, updateTaskStatus, updatePullRequestUrl } from "../lib/notion";
 import type { PageObjectResponse } from "@notionhq/client/build/src/api-endpoints";
 
 // ---------------------------------------------------------------------------
@@ -10,6 +10,7 @@ import type { PageObjectResponse } from "@notionhq/client/build/src/api-endpoint
 vi.mock("../lib/notion", () => ({
   findTaskById: vi.fn(),
   updateTaskStatus: vi.fn(),
+  updatePullRequestUrl: vi.fn(),
 }));
 
 // ---------------------------------------------------------------------------
@@ -67,6 +68,7 @@ function makePRPayload(overrides: {
     pull_request: {
       number: 1,
       title: overrides.title ?? "LEVEL-42 some work",
+      html_url: "https://github.com/org/repo/pull/1",
       merged: overrides.merged ?? false,
       head: { ref: overrides.branch ?? "feature/level-42-work" },
       user: { login: "dev" },
@@ -85,6 +87,7 @@ describe("POST /webhooks/github", () => {
   beforeEach(() => {
     vi.mocked(findTaskById).mockResolvedValue(MOCK_PAGE);
     vi.mocked(updateTaskStatus).mockResolvedValue(undefined);
+    vi.mocked(updatePullRequestUrl).mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -149,7 +152,7 @@ describe("POST /webhooks/github", () => {
 
   // ── Status sync ───────────────────────────────────────────────────────────
 
-  it("PR opened → finds task and sets In Progress", async () => {
+  it("PR opened → finds task and sets In Progress + PR URL", async () => {
     const body = makePRPayload({ action: "opened", title: "LEVEL-42 work" });
     const res = await sendWebhook(body);
     expect(res.status).toBe(200);
@@ -163,9 +166,14 @@ describe("POST /webhooks/github", () => {
       MOCK_PAGE_ID,
       "In Progress"
     );
+    expect(updatePullRequestUrl).toHaveBeenCalledWith(
+      expect.anything(),
+      MOCK_PAGE_ID,
+      "https://github.com/org/repo/pull/1"
+    );
   });
 
-  it("PR review_requested → sets In Review", async () => {
+  it("PR review_requested → sets In Review + PR URL", async () => {
     const body = makePRPayload({ action: "review_requested" });
     const res = await sendWebhook(body);
     expect(res.status).toBe(200);
@@ -174,9 +182,14 @@ describe("POST /webhooks/github", () => {
       MOCK_PAGE_ID,
       "In Review"
     );
+    expect(updatePullRequestUrl).toHaveBeenCalledWith(
+      expect.anything(),
+      MOCK_PAGE_ID,
+      "https://github.com/org/repo/pull/1"
+    );
   });
 
-  it("PR closed+merged → sets Done", async () => {
+  it("PR closed+merged → sets Done + PR URL", async () => {
     const body = makePRPayload({ action: "closed", merged: true });
     const res = await sendWebhook(body);
     expect(res.status).toBe(200);
@@ -184,6 +197,11 @@ describe("POST /webhooks/github", () => {
       expect.anything(),
       MOCK_PAGE_ID,
       "Done"
+    );
+    expect(updatePullRequestUrl).toHaveBeenCalledWith(
+      expect.anything(),
+      MOCK_PAGE_ID,
+      "https://github.com/org/repo/pull/1"
     );
   });
 
@@ -236,6 +254,7 @@ describe("POST /webhooks/github", () => {
     const res = await sendWebhook(body);
     expect(res.status).toBe(200);
     expect(updateTaskStatus).not.toHaveBeenCalled();
+    expect(updatePullRequestUrl).not.toHaveBeenCalled();
   });
 
   it("returns 500 when Notion query throws", async () => {
@@ -248,6 +267,16 @@ describe("POST /webhooks/github", () => {
 
   it("returns 500 when Notion update throws", async () => {
     vi.mocked(updateTaskStatus).mockRejectedValue(
+      new Error("Notion update failed (500): Internal error")
+    );
+
+    const body = makePRPayload({ action: "opened" });
+    const res = await sendWebhook(body);
+    expect(res.status).toBe(500);
+  });
+
+  it("returns 500 when PR URL update throws", async () => {
+    vi.mocked(updatePullRequestUrl).mockRejectedValue(
       new Error("Notion update failed (500): Internal error")
     );
 

@@ -21,6 +21,7 @@ export interface GitHubRepository {
 export interface GitHubPullRequest {
   number: number;
   title: string;
+  html_url: string;
   merged: boolean;
   head: {
     ref: string; // branch name
