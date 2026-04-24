@@ -45,7 +45,7 @@ export interface PullRequestEvent {
 // Status mapping
 // ---------------------------------------------------------------------------
 
-export type NotionStatus = "In Progress" | "In Review" | "Done";
+export type NotionStatus = "In Progress" | "In Review" | "Done" | "Canceled";
 
 /**
  * Maps a GitHub pull_request event action to a Notion status.
@@ -59,5 +59,6 @@ export function mapEventToStatus(
   if (action === "edited") return "In Progress";
   if (action === "review_requested") return "In Review";
   if (action === "closed" && merged) return "Done";
+  if (action === "closed" && !merged) return "Canceled";
   return null;
 }

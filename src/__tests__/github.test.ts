@@ -21,8 +21,8 @@ describe("mapEventToStatus", () => {
     expect(mapEventToStatus("closed", true)).toBe("Done");
   });
 
-  it("returns null for closed+merged=false (not a merge, just a close)", () => {
-    expect(mapEventToStatus("closed", false)).toBeNull();
+  it("maps closed+merged=false → Canceled", () => {
+    expect(mapEventToStatus("closed", false)).toBe("Canceled");
   });
 
   it("returns null for unhandled actions", () => {
