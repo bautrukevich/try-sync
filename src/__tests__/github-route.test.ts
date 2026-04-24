@@ -130,11 +130,20 @@ describe("POST /webhooks/github", () => {
     expect(findTaskById).not.toHaveBeenCalled();
   });
 
-  it("ignores closed PR that was not merged", async () => {
+  it("closed PR not merged → sets Canceled", async () => {
     const body = makePRPayload({ action: "closed", merged: false });
     const res = await sendWebhook(body);
     expect(res.status).toBe(200);
-    expect(findTaskById).not.toHaveBeenCalled();
+
+    expect(findTaskById).toHaveBeenCalledWith(
+      expect.objectContaining({ NOTION_DATABASE_ID: TEST_ENV.NOTION_DATABASE_ID }),
+      "LEVEL-42"
+    );
+    expect(updateTaskStatus).toHaveBeenCalledWith(
+      expect.anything(),
+      MOCK_PAGE_ID,
+      "Canceled"
+    );
   });
 
   // ── Task ID extraction ────────────────────────────────────────────────────
